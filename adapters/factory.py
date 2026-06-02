@@ -12,3 +12,28 @@ def get_llm():
 def get_embedder():
     from adapters.embedding.jina import JinaEmbeddingAdapter
     return JinaEmbeddingAdapter()
+
+
+def build_pipeline():
+    from repositories.knowledge_repository import KnowledgeRepository
+    from repositories.message_repository import MessageRepository
+    from repositories.user_repository import UserRepository
+    from services.classifier import ClassifierService
+    from services.evaluator import EvaluatorService
+    from services.generator import GeneratorService
+    from services.pipeline import MessagePipeline
+    from services.retriever import RetrieverService
+
+    llm = get_llm()
+    embedder = get_embedder()
+    knowledge_repo = KnowledgeRepository()
+
+    return MessagePipeline(
+        classifier=ClassifierService(llm),
+        retriever=RetrieverService(embedder, knowledge_repo),
+        evaluator=EvaluatorService(),
+        generator=GeneratorService(llm),
+        user_repo=UserRepository(),
+        message_repo=MessageRepository(),
+        knowledge_repo=knowledge_repo,
+    )
