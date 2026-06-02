@@ -82,6 +82,7 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-8b")
 
 # --- Embeddings ---
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "jina")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "jina-embeddings-v3")
 EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 

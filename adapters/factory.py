@@ -10,6 +10,9 @@ def get_llm():
 
 
 def get_embedder():
+    if getattr(settings, "EMBEDDING_PROVIDER", "jina") == "mock":
+        from adapters.embedding.mock import MockEmbeddingAdapter
+        return MockEmbeddingAdapter()
     from adapters.embedding.jina import JinaEmbeddingAdapter
     return JinaEmbeddingAdapter()
 

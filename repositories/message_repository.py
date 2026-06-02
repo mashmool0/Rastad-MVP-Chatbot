@@ -1,7 +1,7 @@
 import logging
 
 from apps.messages.models import Message
-from apps.users.models import RastadUser
+from apps.users.models import RastadUser  # needed for type hint on save()
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,3 @@ class MessageRepository:
         return list(
             Message.objects.filter(user_id=user_id).order_by("-created_at")
         )
-
-    def list_users(self) -> list[RastadUser]:
-        return list(RastadUser.objects.all().order_by("user_id"))

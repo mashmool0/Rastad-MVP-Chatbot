@@ -1,5 +1,7 @@
+import json
 import logging
 import time
+from datetime import datetime, timezone
 
 from django.conf import settings
 
@@ -56,9 +58,32 @@ class MessagePipeline:
         )
 
         latency_ms = int((time.monotonic() - start) * 1000)
-        logger.info("DONE | user_id=%s total_ms=%d", user.user_id, latency_ms)
-
         chunks_used = [f"{c.source_file} §{c.chunk_index}" for c in chunks]
+
+        confidence_label = (
+            "HIGH" if max_similarity >= 0.7
+            else "MEDIUM" if max_similarity >= settings.CONFIDENCE_THRESHOLD
+            else "LOW"
+        )
+
+        # Structured per-request payload — no message content logged
+        structured = {
+            "timestamp":           datetime.now(timezone.utc).isoformat(),
+            "user_id":             str(user.user_id),
+            "intent":              classification.intent,
+            "segment":             classification.segment,
+            "needs_human_support": needs_human,
+            "confidence":          confidence_label,
+            "top_chunk_similarity": round(max_similarity, 4),
+            "chunks_used":         chunks_used,
+            "llm_provider":        settings.LLM_PROVIDER,
+            "fallback_used":       fallback_used,
+            "latency_ms":          latency_ms,
+            "error":               None,
+        }
+        logger.info("DONE | user_id=%s total_ms=%d payload=%s",
+                    user.user_id, latency_ms,
+                    json.dumps(structured, ensure_ascii=False))
 
         # 2f — persist (never fail the response on a storage error)
         try:

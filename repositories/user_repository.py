@@ -24,3 +24,6 @@ class UserRepository:
         # auto_now=True on last_seen_at means save() updates it automatically
         user.segment = segment
         user.save(update_fields=["segment", "last_seen_at"])
+
+    def list_users(self) -> list[RastadUser]:
+        return list(RastadUser.objects.all().order_by("user_id"))

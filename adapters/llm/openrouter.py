@@ -55,7 +55,8 @@ _GENERATE_SYSTEM = """تو دستیار هوشمند پشتیبانی راستا
 - فارسی و محترمانه باشد
 - فقط از اطلاعات داده‌شده استفاده کند
 - کوتاه و مستقیم باشد (حداکثر ۳ جمله)
-- اگر اطلاعات کافی نداری، بگو تیم پشتیبانی کمک می‌کند"""
+- اگر اطلاعات کافی نداری، بگو تیم پشتیبانی کمک می‌کند
+- هیچ توضیح یا تحلیل اضافه‌ای ننویس، فقط پاسخ نهایی"""
 
 _RETRY_TEMPLATE = """خطای قبلی: {error}
 مقادیر مجاز برای intent: vip_question, exchange_registration, kol_collaboration, support_request, general_info, unknown
@@ -65,10 +66,13 @@ _RETRY_TEMPLATE = """خطای قبلی: {error}
 پیام کاربر: {message}"""
 
 
+def _strip_thinking(text: str) -> str:
+    """Remove Qwen3 <think>…</think> blocks from any LLM output."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
 def _extract_json(text: str) -> str:
-    # Strip Qwen3 thinking blocks before parsing
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    # Extract first JSON object, handles markdown code fences too
+    text = _strip_thinking(text)
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         return match.group(0)
@@ -92,8 +96,14 @@ class OpenRouterLLMAdapter:
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
+                    "HTTP-Referer": "https://smrastad.com",
+                    "X-Title": "Rastad AI Assistant",
                 },
-                json={"model": self._model, "messages": messages},
+                json={
+                    "model": self._model,
+                    "messages": messages,
+                    "temperature": 0.3,
+                },
                 timeout=30,
             )
             response.raise_for_status()
@@ -133,4 +143,6 @@ class OpenRouterLLMAdapter:
             f"نوع درخواست: {intent}\n\n"
             f"پیام کاربر: {message}"
         )
-        return self._chat(user_content, system=_GENERATE_SYSTEM)
+        raw = self._chat(user_content, system=_GENERATE_SYSTEM)
+        # Strip any thinking blocks that leaked into the reply
+        return _strip_thinking(raw)
