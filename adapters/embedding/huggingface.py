@@ -8,7 +8,7 @@ from core.exceptions import EmbeddingError
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://api-inference.huggingface.co/models"
+_BASE_URL = "https://router.huggingface.co/hf-inference/models"
 _MAX_WAIT_RETRIES = 3  # HuggingFace free tier cold-starts → model loading → retry
 
 
@@ -16,7 +16,7 @@ class HuggingFaceEmbeddingAdapter:
     def __init__(self) -> None:
         self._api_key = settings.HUGGINGFACE_API_KEY
         self._model = settings.EMBEDDING_MODEL
-        self._url = f"{_BASE_URL}/{self._model}"
+        self._url = f"{_BASE_URL}/{self._model}/pipeline/feature-extraction"
 
     def embed(self, text: str, task: str = "retrieval.query") -> list[float]:
         # multilingual-e5 requires explicit prefixes for asymmetric retrieval
@@ -56,7 +56,7 @@ class HuggingFaceEmbeddingAdapter:
             # feature-extraction returns [[float, ...]] for a single input
             if isinstance(result, list) and result and isinstance(result[0], list):
                 return result[0]
-            if isinstance(result, list) and result and isinstance(result[0], float):
+            if isinstance(result, list) and result and isinstance(result[0], (int, float)):
                 return result
 
             logger.error("EMBED | unexpected response shape: %s", type(result))

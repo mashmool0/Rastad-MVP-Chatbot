@@ -14,10 +14,18 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = "Embed knowledge_base/*.txt files into pgvector (idempotent)"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Re-embed every chunk, ignoring the content_hash skip",
+        )
+
     def handle(self, *args, **options):
         kb_dir = Path(settings.BASE_DIR) / "knowledge_base"
         repo = KnowledgeRepository()
         embedder = get_embedder()
+        force = options["force"]
 
         total = indexed = skipped = 0
 
@@ -31,7 +39,7 @@ class Command(BaseCommand):
                 content_hash = hashlib.md5(content.encode()).hexdigest()
 
                 existing = repo.get_existing(txt_file.name, chunk_index)
-                if existing and existing.content_hash == content_hash:
+                if not force and existing and existing.content_hash == content_hash:
                     skipped += 1
                     continue
 

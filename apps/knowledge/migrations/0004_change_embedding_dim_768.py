@@ -1,3 +1,5 @@
+import pgvector.django.vector
+from django.conf import settings
 from django.db import migrations
 
 
@@ -42,5 +44,12 @@ class Migration(migrations.Migration):
                     USING ivfflat (embedding vector_cosine_ops)
                     WITH (lists = 10);
             """,
+            state_operations=[
+                migrations.AlterField(
+                    model_name="knowledgechunk",
+                    name="embedding",
+                    field=pgvector.django.vector.VectorField(dimensions=settings.EMBEDDING_DIM),
+                ),
+            ],
         )
     ]
