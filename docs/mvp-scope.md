@@ -37,7 +37,15 @@ Output:
 }
 ```
 
-### 2.3 Admin Endpoints
+### 2.3 Authentication (UI Only)
+- `/login` — username + password form (Django session auth)
+- `/signup` — username + name + password + password confirmation
+- Signup creates `auth.User` + `RastadUser` (integer `user_id` auto-assigned) in one transaction
+- `/` (main UI) is `@login_required` — redirects to `/login` if not authenticated
+- After login, `user_id` is known from session — UI fills it automatically
+- API endpoints (`/api/*`) remain open — no auth required for programmatic use
+
+### 2.4 Admin Endpoints
 ```
 GET /api/users
 GET /api/users/{user_id}/messages
@@ -125,7 +133,7 @@ Full README covering: project description, tech stack, install & run locally, Do
 Per the task brief — not built, not partially built:
 
 - UI admin panel or dashboard beyond the single demo page
-- Full authentication / authorization system
+- Full authorization system (roles, permissions, API tokens)
 - Real Rastad CRM or exchange integration
 - Payment processing
 - Telegram Bot

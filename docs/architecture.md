@@ -247,7 +247,7 @@ rastad/
 │   │   ├── views.py
 │   │   ├── serializers.py
 │   │   └── urls.py
-│   ├── users/               # User model + migration
+│   ├── users/               # RastadUser model + migration
 │   │   ├── models.py
 │   │   └── migrations/
 │   ├── messages/            # Message model + migration
@@ -257,9 +257,16 @@ rastad/
 │   │   ├── models.py
 │   │   ├── management/commands/index_knowledge_base.py
 │   │   └── migrations/
-│   └── ui/                  # Single HTML page view
+│   ├── auth_app/            # Signup / login / logout views
+│   │   ├── views.py         # signup_view, login_view, logout_view
+│   │   ├── forms.py         # SignupForm (username, name, password x2)
+│   │   └── urls.py
+│   └── ui/                  # Main page (login required)
 │       ├── views.py
-│       └── templates/ui/index.html
+│       └── templates/
+│           ├── ui/index.html
+│           ├── auth/login.html
+│           └── auth/signup.html
 │
 ├── core/
 │   ├── ports.py             # Protocol interfaces (LLMPort, EmbeddingPort)
