@@ -1,0 +1,341 @@
+{
+  "info": {
+    "_postman_id": "rastad-ai-assistant-collection",
+    "name": "Rastad AI Assistant",
+    "description": "Full API test collection for the Rastad AI Lead & Support Assistant.\n\nBase URL variable: {{base_url}} (default: http://localhost:8000)\n\nEndpoints:\n- POST /api/message — send a message, get AI reply\n- GET  /api/users — list all users\n- GET  /api/users/:user_id/messages — message history for a user",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "1",
+      "type": "string",
+      "description": "Set this after creating a user via POST /api/message"
+    }
+  ],
+  "item": [
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "VIP Question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ali\",\n  \"message\": \"خدمات VIP راستاد چیه؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Ask about VIP services.\nExpected: intent=vip_question, user_segment=vip_interest, needs_human_support=false"
+          },
+          "response": []
+        },
+        {
+          "name": "VIP Question — with user_id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{user_id}},\n  \"name\": \"Ali\",\n  \"message\": \"قیمت اشتراک VIP چقدره؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Same user asks a follow-up VIP question using their user_id.\nUpdate the {{user_id}} variable with a real ID from GET /api/users first."
+          },
+          "response": []
+        },
+        {
+          "name": "Exchange Registration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sara\",\n  \"message\": \"چطور در صرافی ثبت نام کنم؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Ask about exchange signup.\nExpected: intent=exchange_registration, user_segment=exchange_signup, needs_human_support=false"
+          },
+          "response": []
+        },
+        {
+          "name": "KOL Collaboration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Reza\",\n  \"message\": \"میخوام با راستاد همکاری KOL داشته باشم\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Ask about KOL partnership.\nExpected: intent=kol_collaboration, user_segment=kol_candidate, needs_human_support=false"
+          },
+          "response": []
+        },
+        {
+          "name": "Support Request — Payment Problem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Maryam\",\n  \"message\": \"مشکل پرداخت دارم، اشتراکم فعال نشده\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Report a payment/support issue.\nExpected: intent=support_request, needs_human_support=TRUE (always for support_request)"
+          },
+          "response": []
+        },
+        {
+          "name": "General Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Hamed\",\n  \"message\": \"راستاد چه خدماتی ارائه میده؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "General question about Rastad services.\nExpected: intent=general_info, needs_human_support=false"
+          },
+          "response": []
+        },
+        {
+          "name": "Trade Assist Question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Kamran\",\n  \"message\": \"Trade Assist چیه و چطور کار میکنه؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Ask about the Trade Assist service.\nTests KB retrieval — answer should come from vip_products.txt"
+          },
+          "response": []
+        },
+        {
+          "name": "400 — Empty Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test\",\n  \"message\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Empty message string.\nExpected: 400 Bad Request with validation error"
+          },
+          "response": []
+        },
+        {
+          "name": "400 — Missing Message Field",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "No message field at all.\nExpected: 400 Bad Request"
+          },
+          "response": []
+        },
+        {
+          "name": "No name — uses default",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"اشتراک VIP چه مزایایی داره؟\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/message",
+              "host": ["{{base_url}}"],
+              "path": ["api", "message"]
+            },
+            "description": "Only message field — user_id and name are optional.\nname defaults to 'کاربر', user_id is auto-assigned."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users"]
+            },
+            "description": "Returns all RastadUser records.\nUse the user_id from here to query message history."
+          },
+          "response": []
+        },
+        {
+          "name": "User Message History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{user_id}}/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "{{user_id}}", "messages"]
+            },
+            "description": "Returns all messages for a specific user, ordered by newest first.\nSet the {{user_id}} collection variable to a real user_id from GET /api/users."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
