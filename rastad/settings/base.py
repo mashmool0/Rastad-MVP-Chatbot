@@ -76,7 +76,8 @@ USE_I18N = True
 USE_TZ = True
 
 # --- LLM ---
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")      # OpenRouter key
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "") # OpenAI key
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openrouter")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-8b")
 

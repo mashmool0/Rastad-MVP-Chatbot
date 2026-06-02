@@ -2,9 +2,14 @@ from django.conf import settings
 
 
 def get_llm():
-    if settings.LLM_PROVIDER == "mock":
+    provider = settings.LLM_PROVIDER
+    if provider == "mock":
         from adapters.llm.mock import MockLLMAdapter
         return MockLLMAdapter()
+    if provider == "openai":
+        from adapters.llm.openai import OpenAILLMAdapter
+        return OpenAILLMAdapter()
+    # default → openrouter
     from adapters.llm.openrouter import OpenRouterLLMAdapter
     return OpenRouterLLMAdapter()
 
