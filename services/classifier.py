@@ -6,7 +6,6 @@ from core.types import ClassificationResult
 
 logger = logging.getLogger(__name__)
 
-# Persian + English keywords → (intent, segment)
 _KEYWORD_MAP: list[tuple[str, str, str]] = [
     ("vip",     "vip_question",          "vip_interest"),
     ("صرافی",   "exchange_registration", "exchange_signup"),
@@ -43,15 +42,11 @@ class ClassifierService:
         self._llm = llm
         self._rule_based = RuleBasedClassifier()
 
-    def classify(self, message: str) -> ClassificationResult:
+    def classify(self, message: str) -> tuple[ClassificationResult, str]:
+        """Return (result, source) where source is 'llm' or 'rule_based'."""
         try:
             result = self._llm.classify(message)
-            logger.info("CLASSIFY | intent=%s segment=%s needs_human=%s",
-                        result.intent, result.segment, result.needs_human_support)
-            return result
+            return result, "llm"
         except LLMError as e:
             logger.warning("FALLBACK | LLM classify failed — using rule-based classifier: %s", e)
-            result = self._rule_based.classify(message)
-            logger.info("CLASSIFY | intent=%s segment=%s (rule-based)",
-                        result.intent, result.segment)
-            return result
+            return self._rule_based.classify(message), "rule_based"

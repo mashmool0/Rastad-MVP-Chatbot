@@ -22,7 +22,4 @@ class RetrieverService:
             logger.warning("FALLBACK | embedding failed — skipping retrieval: %s", e)
             return []
 
-        chunks = self._knowledge_repo.similarity_search(vector, top_k=settings.RETRIEVE_TOP_K)
-        top = max((c.similarity for c in chunks), default=0.0)
-        logger.info("RETRIEVE | top_similarity=%.2f chunks=%d", top, len(chunks))
-        return chunks
+        return self._knowledge_repo.similarity_search(vector, top_k=settings.RETRIEVE_TOP_K)

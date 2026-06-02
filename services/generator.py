@@ -31,7 +31,6 @@ class GeneratorService:
 
         try:
             reply = self._llm.generate_reply(message, chunk_texts, intent)
-            logger.info("GENERATE | llm_provider=%s", "openrouter")
             return reply, False
         except LLMError as e:
             logger.warning("FALLBACK | LLM generate failed — using template reply: %s", e)
