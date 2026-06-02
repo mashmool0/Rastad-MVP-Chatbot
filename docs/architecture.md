@@ -35,13 +35,13 @@ return a structured response.
 ┌──────▼──────────────────┐   ┌───────────────▼──────────────┐
 │    Repository Layer      │   │       Adapter Layer           │
 │  UserRepository          │   │  LLMAdapter (OpenRouter)      │
-│  MessageRepository       │   │  LLMAdapter (Mock)            │
-│  KnowledgeRepository     │   │  EmbeddingAdapter (OpenRouter)│
-└──────┬──────────────────┘   └───────────────────────────────┘
-       │
-┌──────▼──────────────────┐
+│  MessageRepository       │   │  LLMAdapter (OpenAI)          │
+│  KnowledgeRepository     │   │  LLMAdapter (Mock)            │
+└──────┬──────────────────┘   │  EmbeddingAdapter (Jina AI)   │
+       │                       │  EmbeddingAdapter (Mock)      │
+┌──────▼──────────────────┐   └───────────────────────────────┘
 │   PostgreSQL + pgvector  │
-│  users · messages        │
+│  rastad_users · messages │
 │  knowledge_chunks        │
 └─────────────────────────┘
 ```
@@ -66,164 +66,160 @@ Request: { user_id, name, message }
           │
           ▼
  [1] DRF Serializer
-     — validate: user_id not empty, message not empty
+     — validate: message not empty (user_id optional, name defaults to "کاربر")
      — raise 400 if invalid
           │
           ▼
  [2] MessagePipeline.process(user_id, name, message)
      │
      ├─[2a] UserRepository.get_or_create(user_id, name)
-     │       → upsert User row, return User object
+     │       → if user_id given: get_or_create by PK
+     │       → if no user_id: create new RastadUser (auth_user=None)
+     │       → return RastadUser object
      │
-     ├─[2b] ClassifierService.classify(message)
-     │       → try: LLMAdapter.classify(message) → {intent, segment, needs_human}
+     ├─[2b] ClassifierService.classify(message)          ← llm_ms starts
+     │       → try: LLMAdapter.classify(message)
+     │             _strip_thinking() → json.loads() → Pydantic validate
+     │             → retry up to 2x with Persian error injection
      │       → fallback: RuleBasedClassifier.classify(message)
-     │       → return ClassificationResult
+     │       → return ClassificationResult                ← llm classify done
      │
-     ├─[2c] RetrieverService.retrieve(message, top_k=4)
-     │       → EmbeddingAdapter.embed(message) → vector[1536]
+     ├─[2c] RetrieverService.retrieve(message)           ← embedding_ms starts
+     │       → EmbeddingAdapter.embed(message, task="retrieval.query")
      │       → KnowledgeRepository.similarity_search(vector, top_k=4)
-     │       → return list[KnowledgeChunk] with similarity scores
-     │
+     │       → return list[RetrievedChunk] with similarity scores
+     │                                                    ← embedding_ms ends
      ├─[2d] EvaluatorService.evaluate(chunks, classification)
-     │       → check: max similarity score < CONFIDENCE_THRESHOLD (0.45)
-     │       → check: intent == "support_request"
-     │       → check: classification.needs_human from LLM
-     │       → return final needs_human_support: bool
-     │         (if KB confidence is too low → force needs_human_support=True)
+     │       → max_similarity < CONFIDENCE_THRESHOLD (0.45)?
+     │       → intent == "support_request"?
+     │       → classification.needs_human_support from LLM?
+     │       → return (needs_human: bool, max_similarity: float)
      │
-     ├─[2e] GeneratorService.generate(message, chunks, classification)
-     │       → build prompt: system context + KB chunks + user message
-     │       → LLMAdapter.generate(prompt) → reply string
-     │       → fallback: template reply from best-matching chunk
+     ├─[2e] GeneratorService.generate(message, chunks, intent, needs_human)
+     │       → build prompt: system context + KB chunks + user message  ← llm_ms resumes
+     │       → LLMAdapter.generate_reply() → _strip_thinking() → reply
+     │       → fallback: best-matching chunk content or handoff template ← llm_ms ends
      │
      └─[2f] MessageRepository.save(...)
              UserRepository.update_last_seen_and_segment(...)
-             → return saved Message object
+             → DB write errors logged, never fail the user response
           │
           ▼
- Response: { reply, intent, user_segment, needs_human_support }
+ Response: {
+   reply, intent, user_segment, needs_human_support, confidence,
+   chunks_used, llm_provider, fallback_used,
+   latency: { total_ms, llm_ms, embedding_ms, other_ms }
+ }
 ```
 
 ---
 
-## 4. The Evaluator — Design Decision
+## 4. Latency Breakdown
 
-The evaluator sits between retrieval and generation. It answers one question:
-**"Is the system confident enough to answer this, or should a human handle it?"**
+Every response includes a `latency` object with three buckets:
 
-Three approaches considered:
-
-### Option A — LLM-as-judge (not chosen for MVP)
-After generating the reply, a second LLM call rates the reply quality (1–10)
-and rewrites if below threshold.
-- Pro: highest quality control
-- Con: doubles LLM API calls and latency, costs more, complicates the pipeline
-- Decision: **too heavy for MVP**, but easy to add as a post-generation step later
-
-### Option B — Confidence from KB similarity (chosen)
-Use the cosine similarity score already computed during retrieval.
-If the highest similarity score across all retrieved chunks is below a threshold,
-the system doesn't have relevant knowledge — a human should respond instead.
-
-```
-max(chunk.similarity for chunk in chunks) < CONFIDENCE_THRESHOLD
-    → needs_human_support = True
-    → reply = "I'm connecting you with our support team."
+```json
+"latency": {
+  "total_ms": 2100,
+  "llm_ms": 1750,
+  "embedding_ms": 290,
+  "other_ms": 60
+}
 ```
 
-- Pro: zero extra API calls, uses data we already have, fast, explainable
-- Con: similarity threshold needs tuning per use case
-- Decision: **chosen** — fits MVP scope, strong story in interview
+| Field | Contains | High value means |
+|---|---|---|
+| `llm_ms` | classify call + generate call | LLM provider is slow or queued |
+| `embedding_ms` | Jina API + pgvector search | Jina latency or cold connection |
+| `other_ms` | User DB lookup + evaluation + DB write | DB is slow |
 
-### Option C — Rule-based post-processor (partial)
-Check reply for minimum length, language (Persian expected), forbidden phrases.
-Used as a lightweight supplement to Option B, not a replacement.
-
-### Combined approach in this MVP
+Logs on every request:
 ```
-EvaluatorService.evaluate(chunks, classification):
-    if max_similarity < 0.45:          → needs_human_support = True
-    if classification.intent == "support_request": → needs_human_support = True
-    if classification.needs_human (from LLM):      → needs_human_support = True
-    else:                              → needs_human_support = False
+[INFO] CLASSIFY | intent=vip_question latency_ms=820
+[INFO] RETRIEVE | chunks=4 latency_ms=290
+[INFO] GENERATE | latency_ms=930
+[INFO] DONE     | llm_ms=1750 embedding_ms=290 other_ms=60 total_ms=2100
 ```
-
-`CONFIDENCE_THRESHOLD = 0.45` is configurable via `.env`.
 
 ---
 
 ## 5. LLMService — The Swappable Abstraction
 
 All LLM and embedding calls go through protocol interfaces.
-No service layer code ever imports `openai`, `anthropic`, or `requests` directly.
+No service layer code ever imports `requests` or any provider SDK directly.
 
 ```python
-# core/ports.py  (interfaces — no implementation here)
+# core/ports.py
 
 class LLMPort(Protocol):
     def classify(self, message: str) -> ClassificationResult: ...
     def generate_reply(self, message: str, chunks: list[str], intent: str) -> str: ...
 
 class EmbeddingPort(Protocol):
-    def embed(self, text: str) -> list[float]: ...
+    def embed(self, text: str, task: str = "retrieval.query") -> list[float]: ...
 ```
 
-```python
-# adapters/llm/openrouter.py   ← real implementation
-# adapters/llm/mock.py         ← mock implementation
-# adapters/embedding/openrouter.py
+```
+adapters/llm/openrouter.py  ← OpenRouter (default)
+adapters/llm/openai.py      ← OpenAI
+adapters/llm/mock.py        ← Mock (tests + offline)
+adapters/embedding/jina.py  ← Jina AI embeddings
+adapters/embedding/mock.py  ← Zero-vector stub (tests)
 ```
 
-Swapping from OpenRouter to Claude API = replace one adapter file, change one
-`LLM_PROVIDER` env var. Zero changes to service layer.
+Swapping providers = change `LLM_PROVIDER` in `.env`, restart app. Zero service layer changes.
 
 ```
-LLM_PROVIDER=openrouter   → uses OpenRouterLLMAdapter
-LLM_PROVIDER=mock         → uses MockLLMAdapter
+LLM_PROVIDER=openrouter  → OpenRouterLLMAdapter
+LLM_PROVIDER=openai      → OpenAILLMAdapter
+LLM_PROVIDER=mock        → MockLLMAdapter
 ```
 
-Dependency injection is handled at app startup in `apps.py` — the service layer
-receives adapters as constructor arguments, never instantiates them itself.
+Dependency injection is handled at app startup in `adapters/factory.py` — services
+receive adapters as constructor arguments, never instantiate them themselves.
 
 ---
 
 ## 6. Knowledge Base & pgvector Flow
 
-### Indexing (runs once at startup via Django management command)
+### Indexing (runs automatically on container startup)
 ```
 knowledge_base/*.txt
         │
         ▼
-  chunk by paragraph (~300 tokens each)
+  chunk by paragraph (~300 chars each, split on \n\n)
+  filter: len >= 20 chars
+  hash: MD5(content) — skip if unchanged (idempotent)
         │
         ▼
-  EmbeddingAdapter.embed(chunk) → vector
+  JinaEmbeddingAdapter.embed(chunk, task="retrieval.passage") → vector[1024]
         │
         ▼
-  KnowledgeRepository.upsert(source_file, content, vector)
+  KnowledgeRepository.upsert(source_file, chunk_index, content, hash, vector)
         │
         ▼
-  knowledge_chunks table  (PostgreSQL + pgvector)
+  knowledge_chunks table  (PostgreSQL + pgvector, dim=1024)
 ```
 
-Re-indexing: run `python manage.py index_knowledge_base` — idempotent, safe to re-run.
+Re-indexing: `python manage.py index_knowledge_base` — idempotent, safe to re-run.
+Only changed or new chunks hit the Jina API.
 
 ### Query (on every message)
 ```
 user_message
         │
         ▼
-  EmbeddingAdapter.embed(message) → query_vector
+  JinaEmbeddingAdapter.embed(message, task="retrieval.query") → query_vector[1024]
         │
         ▼
-  SELECT content, 1 - (embedding <=> query_vector) AS similarity
+  SELECT content, source_file, chunk_index,
+         1 - (embedding <=> %s::vector) AS similarity
   FROM knowledge_chunks
-  ORDER BY embedding <=> query_vector
+  ORDER BY embedding <=> %s::vector
   LIMIT 4;
         │
         ▼
-  top-4 chunks + similarity scores → EvaluatorService → GeneratorService
+  top-4 RetrievedChunks + similarity scores → EvaluatorService → GeneratorService
 ```
 
 The `<=>` operator is pgvector cosine distance. Similarity = `1 - distance`.
@@ -236,74 +232,63 @@ The `<=>` operator is pgvector cosine distance. Similarity = `1 - distance`.
 rastad/
 ├── rastad/                  # Django project
 │   ├── settings/
-│   │   ├── base.py
+│   │   ├── base.py          # all env vars loaded here
 │   │   ├── development.py
+│   │   ├── test.py          # LLM_PROVIDER=mock, EMBEDDING_PROVIDER=mock
 │   │   └── production.py
 │   ├── urls.py
 │   └── wsgi.py
 │
 ├── apps/
 │   ├── api/                 # DRF views, serializers, URL routing
-│   │   ├── views.py
+│   │   ├── views.py         # thin — calls pipeline, returns response
 │   │   ├── serializers.py
 │   │   └── urls.py
 │   ├── users/               # RastadUser model + migration
-│   │   ├── models.py
-│   │   └── migrations/
-│   ├── messages/            # Message model + migration
-│   │   ├── models.py
-│   │   └── migrations/
-│   ├── knowledge/           # KnowledgeChunk model + management command
-│   │   ├── models.py
-│   │   ├── management/commands/index_knowledge_base.py
-│   │   └── migrations/
-│   ├── auth_app/            # Signup / login / logout views
-│   │   ├── views.py         # signup_view, login_view, logout_view
-│   │   ├── forms.py         # SignupForm (username, name, password x2)
-│   │   └── urls.py
-│   └── ui/                  # Main page (login required)
-│       ├── views.py
-│       └── templates/
-│           ├── ui/index.html
-│           ├── auth/login.html
-│           └── auth/signup.html
+│   │   └── models.py
+│   ├── messages/            # Message model (app label: rastad_messages)
+│   │   └── models.py
+│   └── knowledge/           # KnowledgeChunk model + management command
+│       ├── models.py
+│       └── management/commands/index_knowledge_base.py
 │
 ├── core/
-│   ├── ports.py             # Protocol interfaces (LLMPort, EmbeddingPort)
-│   ├── types.py             # Dataclasses: ClassificationResult, RetrievedChunk
-│   └── exceptions.py        # Domain exceptions
+│   ├── ports.py             # LLMPort, EmbeddingPort protocols
+│   ├── types.py             # ClassificationResult, RetrievedChunk, PipelineResult
+│   └── exceptions.py        # LLMError, EmbeddingError, ClassificationError
 │
 ├── services/
-│   ├── pipeline.py          # MessagePipeline — main orchestrator
+│   ├── pipeline.py          # MessagePipeline — orchestrator, timing, logging
 │   ├── classifier.py        # ClassifierService + RuleBasedClassifier
 │   ├── retriever.py         # RetrieverService
 │   ├── generator.py         # GeneratorService
 │   └── evaluator.py         # EvaluatorService
 │
 ├── repositories/
-│   ├── user_repository.py
+│   ├── user_repository.py   # get_or_create, update_last_seen_and_segment, list_users
 │   ├── message_repository.py
-│   └── knowledge_repository.py
+│   └── knowledge_repository.py  # upsert, similarity_search (raw SQL pgvector)
 │
 ├── adapters/
+│   ├── factory.py           # build_pipeline(), get_llm(), get_embedder()
 │   ├── llm/
-│   │   ├── openrouter.py    # Real LLM adapter
-│   │   └── mock.py          # Mock adapter (deterministic, for tests + offline)
+│   │   ├── openrouter.py    # OpenRouter — Qwen3-8b, thinking block stripping
+│   │   ├── openai.py        # OpenAI — gpt-4o-mini etc.
+│   │   └── mock.py          # keyword-based, no network
 │   └── embedding/
-│       └── openrouter.py    # Embedding adapter
+│       ├── jina.py          # Jina AI — jina-embeddings-v3, dim 1024
+│       └── mock.py          # zero-vector stub for tests
 │
-├── knowledge_base/
-│   ├── rastad_services.txt
-│   ├── vip_products.txt
-│   ├── exchange_signup.txt
-│   └── kol_program.txt
+├── knowledge_base/          # *.txt source files (Persian, paragraph format)
+├── tests/
+│   └── test_api.py          # pytest endpoint tests (mock LLM + mock embedder)
 │
 ├── docs/                    # This directory
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile               # BuildKit cache mount for pip
+├── docker-compose.yml       # app + pgvector/pgvector:pg16
+├── entrypoint.sh            # wait for DB → migrate → index KB → runserver
 ├── .env.example
 ├── requirements.txt
-├── manage.py
 └── README.md
 ```
 
@@ -313,37 +298,40 @@ rastad/
 
 | Pattern | Where | Why |
 |---|---|---|
-| **Repository** | `repositories/` | Isolate DB from business logic — easy to swap DB or test |
-| **Adapter / Port** | `adapters/` + `core/ports.py` | External APIs behind interfaces — swap LLM provider without touching service code |
-| **Pipeline** | `services/pipeline.py` | Sequential steps with clear in/out — easy to add/remove a step |
+| **Repository** | `repositories/` | Isolate DB from business logic |
+| **Adapter / Port** | `adapters/` + `core/ports.py` | External APIs behind interfaces — swap provider via `.env` |
+| **Pipeline** | `services/pipeline.py` | Sequential steps with timing and structured logging |
 | **Strategy** | `LLMAdapter` variants | Runtime-selectable behavior via `LLM_PROVIDER` env var |
-| **Dependency Injection** | `apps.py` startup | Services receive dependencies — no hidden globals or `import` coupling |
+| **Dependency Injection** | `adapters/factory.py` | Services receive adapters as constructor args |
 
 ---
 
 ## 9. Error Handling & Fallback Strategy
 
 ```
-LLM classify fails
-    → RuleBasedClassifier runs
+LLM classify fails (or JSON invalid after 2 retries)
+    → RuleBasedClassifier runs (Persian keyword matching)
     → intent = best keyword match or "unknown"
-    → needs_human_support = True (we're uncertain)
+    → needs_human_support = True
+    → log WARNING FALLBACK
 
 LLM generate fails
     → use best-matching chunk content as template reply
     → needs_human_support = True
+    → log WARNING FALLBACK
 
-Embedding fails
-    → skip retrieval, generate from intent alone
-    → needs_human_support = True
+Embedding fails (Jina API down)
+    → skip retrieval, return []
+    → EvaluatorService: max_similarity=0.0 < threshold → needs_human=True
+    → log WARNING FALLBACK
 
-No chunks above threshold
+No chunks above confidence threshold (0.45)
     → EvaluatorService forces needs_human_support = True
-    → reply = "I'm connecting you with our support team."
+    → reply = Persian handoff template
 
 DB write fails
-    → log error, still return reply to user
-    → do not fail the user-facing response for a storage error
+    → log ERROR, still return reply to user
+    → never fail the user-facing response for a storage error
 ```
 
 Fallback chain principle: **degrade gracefully, always return something, always log.**
@@ -352,28 +340,30 @@ Fallback chain principle: **degrade gracefully, always return something, always 
 
 ## 10. Logging Strategy
 
-Python `logging` module, written to stdout — visible in `docker logs` and
-captured in the UI JSON panel for the demo.
+Python `logging` module, written to stdout — visible in `docker compose logs`.
 
-### Docker log format (human-readable lines)
-Each event logs a prefixed line so Docker logs are scannable at a glance:
-
+### Log format
 ```
-[INFO]    BOOT     | Knowledge base indexed — 24 chunks loaded
-[INFO]    REQUEST  | user_id=12345 message_len=42
-[INFO]    CLASSIFY | intent=vip_question segment=vip_interest
-[INFO]    RETRIEVE | top_similarity=0.82 chunks=4
-[INFO]    EVALUATE | needs_human_support=False confidence=HIGH
-[INFO]    GENERATE | llm_provider=openrouter latency_ms=1240
-[INFO]    DONE     | user_id=12345 total_ms=1380
+[{LEVEL}] {PREFIX} | {key=value ...}
+```
 
-[WARNING] EVALUATE | needs_human_support=True confidence=LOW similarity=0.31
-[WARNING] FALLBACK | LLM classify failed — using rule-based classifier
-[WARNING] FALLBACK | LLM generate failed — using template reply
+### Per-request pipeline log lines
+```
+[INFO    ] REQUEST  | user_id=12345 message_len=42
+[INFO    ] REQUEST  | new user created user_id=1 name=Ali
+[INFO    ] CLASSIFY | intent=vip_question latency_ms=820
+[INFO    ] RETRIEVE | chunks=4 latency_ms=290
+[WARNING ] EVALUATE | needs_human_support=True confidence=LOW similarity=0.31
+[INFO    ] GENERATE | latency_ms=930
+[INFO    ] DONE     | llm_ms=1750 embedding_ms=290 other_ms=60 total_ms=2100
 
-[ERROR]   LLM      | OpenRouter request failed: ConnectionTimeout
-[ERROR]   EMBED    | Embedding request failed: 429 RateLimited
-[ERROR]   DB       | Failed to save message: IntegrityError
+[WARNING ] FALLBACK | LLM classify failed — using rule-based classifier: ...
+[WARNING ] FALLBACK | LLM generate failed — using template reply: ...
+[WARNING ] FALLBACK | embedding failed — skipping retrieval: ...
+
+[ERROR   ] LLM      | OpenRouter request failed: ConnectionTimeout
+[ERROR   ] EMBED    | Jina request failed: 429 RateLimited
+[ERROR   ] DB       | Failed to save message: IntegrityError
 ```
 
 ### Log levels
@@ -384,58 +374,30 @@ Each event logs a prefixed line so Docker logs are scannable at a glance:
 | `ERROR` | External failure — LLM down, DB error, embedding error |
 | `CRITICAL` | Startup failure — DB unreachable, KB indexing failed |
 
-### Structured payload (also sent to UI JSON panel)
-After each request the pipeline emits one structured dict captured by the UI:
-
-```json
-{
-  "timestamp": "2026-06-02T14:23:01Z",
-  "user_id": "12345",
-  "intent": "vip_question",
-  "segment": "vip_interest",
-  "needs_human_support": false,
-  "confidence": "HIGH",
-  "top_chunk_similarity": 0.82,
-  "chunks_used": ["vip_products.txt:§2", "rastad_services.txt:§1"],
-  "llm_provider": "openrouter",
-  "fallback_used": false,
-  "latency_ms": 1380,
-  "error": null
-}
-```
-
 No message content is logged above `DEBUG` level — only metadata.
 
 ---
 
 ## 11. Interview Readiness
 
-Prepared answers for their likely questions:
-
 **"Why Django over FastAPI?"**
 Familiar with Django ORM + migrations, DRF serializers give free validation,
 built-in admin is useful for inspecting data. For an async-heavy production
-service with thousands of concurrent users, FastAPI would be the better choice —
-acknowledged as a known trade-off.
+service with thousands of concurrent users, FastAPI would be the better choice.
 
-**"How do you swap mock → Claude API?"**
-Create `adapters/llm/claude.py` implementing `LLMPort`, change `LLM_PROVIDER=claude`
-in `.env`. Zero changes to service layer.
+**"How do you swap mock → OpenAI or another provider?"**
+Change `LLM_PROVIDER=openai` and `OPENAI_API_KEY=sk-...` in `.env`, restart.
+The factory routes to `OpenAILLMAdapter`. Zero service layer changes.
 
 **"If user count grows 10×?"**
-Add `gunicorn` workers in Dockerfile, add DB connection pooling (pgBouncer or
-`django-db-geventpool`), cache embeddings of common queries in Redis,
-and consider extracting the LLM call to an async task queue (Celery + Redis).
+Add gunicorn workers in Dockerfile, add DB connection pooling (pgBouncer),
+cache embeddings of common queries in Redis, extract LLM call to Celery + Redis.
 
 **"If LLM goes down?"**
 `RuleBasedClassifier` handles classification, template reply from best chunk
-handles generation, `needs_human_support=True` on all responses.
-System stays up and responds — just without LLM quality.
+handles generation, `needs_human_support=True` on all responses. System stays up.
 
 **"How to connect to Telegram or Rastad CRM?"**
-Telegram: add a `apps/telegram/` app with a webhook view — it receives updates,
-calls `MessagePipeline.process()`, and sends the reply back via Telegram Bot API.
+Telegram: add `apps/telegram/` webhook view — call `MessagePipeline.process()`, return reply.
+CRM: add `CRMAdapter` in `adapters/crm/` — call after `MessageRepository.save()`.
 The pipeline doesn't change at all.
-CRM: add a `CRMAdapter` in `adapters/crm/` — call it at the end of the pipeline
-after `MessageRepository.save()` to push lead data. Again, pipeline orchestrates,
-adapter handles the integration.
