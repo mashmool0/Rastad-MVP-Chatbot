@@ -66,16 +66,21 @@ class MessagePipeline:
         t_retrieve = time.monotonic()
 
         if chunks:
-            chunk_detail = " | ".join(
-                f"{c.source_file}§{c.chunk_index}:{c.similarity:.2f}" for c in chunks
-            )
             logger.info(
-                "RETRIEVE | chunks=%d top_similarity=%.2f latency_ms=%d | %s",
+                "RETRIEVE | chunks=%d top_similarity=%.2f latency_ms=%d",
                 len(chunks),
                 chunks[0].similarity,
                 _ms(t_classify, t_retrieve),
-                chunk_detail,
             )
+            for i, c in enumerate(chunks, 1):
+                logger.info(
+                    "CHUNK[%d] | %s §%d similarity=%.4f | %s",
+                    i,
+                    c.source_file,
+                    c.chunk_index,
+                    c.similarity,
+                    c.content,
+                )
         else:
             logger.info(
                 "RETRIEVE | chunks=0 top_similarity=0.00 latency_ms=%d | no chunks returned",
