@@ -11,7 +11,7 @@ An AI-powered support chatbot for the Rastad crypto platform. Classifies user in
 | Backend | Python 3.12 · Django 4.2 · Django REST Framework |
 | Database | PostgreSQL 16 + pgvector (semantic search) |
 | LLM | OpenRouter — `qwen/qwen3-8b` |
-| Embeddings | Jina AI — `jina-embeddings-v3` (dim 1024) |
+| Embeddings | HuggingFace — `intfloat/multilingual-e5-base` (dim 768) |
 | Container | Docker · Docker Compose |
 
 ---
@@ -44,8 +44,8 @@ cp .env.example .env
 Open `.env` and set:
 
 ```env
-LLM_API_KEY=sk-or-v1-...        # OpenRouter API key → openrouter.ai
-JINA_API_KEY=jina_...           # Jina AI API key   → jina.ai (free)
+LLM_API_KEY=sk-or-v1-...                 # OpenRouter API key  → openrouter.ai
+HUGGINGFACE_API_KEY=hf_...               # HuggingFace token   → huggingface.co/settings/tokens (free)
 ```
 
 Everything else has working defaults and does not need to change.
@@ -62,7 +62,7 @@ That's it. On first run, Docker will:
 2. Build the Django app image
 3. Wait for the database to be ready
 4. Run all migrations automatically
-5. Embed all knowledge base files into pgvector via Jina AI
+5. Embed all knowledge base files into pgvector via HuggingFace
 6. Start the API server on `http://localhost:8000`
 
 ### Watch the boot logs
@@ -121,13 +121,22 @@ docker compose down
   "intent": "vip_question",
   "user_segment": "vip_interest",
   "needs_human_support": false,
-  "confidence": 0.82,
-  "chunks_used": ["vip_products.txt §0", "rastad_services.txt §1"],
+  "confidence": 0.8766,
+  "chunks_used": ["vip_products.txt §1", "rastad_services.txt §2"],
   "llm_provider": "openrouter",
   "fallback_used": false,
-  "latency_ms": 1340
+  "latency": {
+    "total_ms": 2045,
+    "llm_ms": 1750,
+    "embedding_ms": 290,
+    "other_ms": 5
+  }
 }
 ```
+
+The `latency` object is split into three buckets — `llm_ms` (both LLM calls),
+`embedding_ms` (HuggingFace embed + pgvector search), and `other_ms` (DB + logic) —
+so you can see exactly where each request spends its time.
 
 ---
 
@@ -229,6 +238,50 @@ print(json.dumps(resp.json(), ensure_ascii=False, indent=2))
 
 ---
 
+## Testing with Postman
+
+A ready-to-use collection ships with the repo: **`rastad-api.postman_collection.json`**.
+No manual request setup needed — import it and click Send.
+
+### Import
+
+1. Open Postman → **Import** → drag in `rastad-api.postman_collection.json`
+   (or **Import → File → Upload**).
+2. The collection **Rastad AI Assistant** appears in the sidebar with two folders:
+   **Messages** and **Users**.
+
+### What's inside
+
+| Folder | Request | What it demonstrates |
+|---|---|---|
+| Messages | VIP Question | `vip_question` intent, KB-grounded reply |
+| Messages | VIP Question — with user_id | reusing an existing user |
+| Messages | Exchange Registration | `exchange_registration` intent |
+| Messages | KOL Collaboration | `kol_collaboration` intent |
+| Messages | Support Request — Payment Problem | `needs_human_support: true` |
+| Messages | General Info | `general_info` intent |
+| Messages | Trade Assist Question | KB retrieval for Trade Assist |
+| Messages | 400 — Empty Message | validation error |
+| Messages | 400 — Missing Message Field | validation error |
+| Messages | No name — uses default | `name` defaults to `کاربر` |
+| Users | List All Users | `GET /api/users` |
+| Users | User Message History | `GET /api/users/{id}/messages` |
+
+### Collection variables
+
+The collection is pre-wired with two variables (edit under the collection's
+**Variables** tab if needed):
+
+| Variable | Default | Use |
+|---|---|---|
+| `base_url` | `http://localhost:8000` | server address — change if not running locally |
+| `user_id` | `1` | used by the user-history and `with user_id` requests |
+
+Start the stack (`docker compose up -d --build`), then send any request — the
+defaults work out of the box.
+
+---
+
 ## Architecture
 
 ```
@@ -241,7 +294,7 @@ User Message
 [2] ClassifierService — LLM → intent + segment + needs_human
     │  fallback: RuleBasedClassifier (keyword matching)
     ▼
-[3] RetrieverService — Jina embed → pgvector cosine search → top-4 chunks
+[3] RetrieverService — HuggingFace embed → pgvector cosine search → top-4 chunks
     │
     ▼
 [4] EvaluatorService — three-signal confidence check:
