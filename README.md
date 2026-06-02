@@ -264,14 +264,83 @@ No layer skips a level. Views have zero business logic.
 
 ---
 
-## LLM Modes
+## Switching LLM Provider
 
-| Mode | Set in `.env` | Behaviour |
+All switching is done by editing `.env` only — no code changes ever needed.
+
+---
+
+### OpenRouter (default)
+
+```env
+LLM_PROVIDER=openrouter
+LLM_API_KEY=sk-or-v1-...
+LLM_MODEL=qwen/qwen3-8b
+```
+
+Get a free key at [openrouter.ai](https://openrouter.ai).
+Other fast free models you can drop in:
+
+```env
+LLM_MODEL=mistralai/mistral-7b-instruct
+LLM_MODEL=meta-llama/llama-3.1-8b-instruct:free
+LLM_MODEL=google/gemma-3-4b-it:free
+```
+
+---
+
+### OpenAI
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+```
+
+Get a key at [platform.openai.com](https://platform.openai.com).
+Recommended models:
+
+```env
+LLM_MODEL=gpt-4o-mini     # fast, cheap, good Persian
+LLM_MODEL=gpt-4o          # best quality
+LLM_MODEL=gpt-3.5-turbo   # cheapest
+```
+
+---
+
+### Mock (no API, for tests)
+
+```env
+LLM_PROVIDER=mock
+```
+
+Deterministic keyword-based responses. No key needed. Used by the test suite.
+
+---
+
+### How to apply the change
+
+After editing `.env`:
+
+```bash
+docker compose restart app
+```
+
+The app reads `.env` at startup — only the app container needs a restart, not the DB.
+
+---
+
+### Latency comparison
+
+| Provider | Typical `llm_ms` | Cost |
 |---|---|---|
-| `openrouter` (default) | `LLM_PROVIDER=openrouter` | Real Qwen3-8b calls, real Persian replies |
-| `mock` | `LLM_PROVIDER=mock` | Deterministic keyword-based, no API calls — used by tests |
+| OpenRouter free tier | 30,000–160,000ms | Free (queue wait) |
+| OpenRouter paid | 1,000–3,000ms | ~$0.001/req |
+| OpenAI `gpt-4o-mini` | 800–2,000ms | ~$0.001/req |
+| OpenAI `gpt-4o` | 1,000–4,000ms | ~$0.01/req |
+| Mock | < 5ms | Free |
 
-Switch modes by editing `.env` and restarting: `docker compose restart app`
+The `latency.llm_ms` field in every response tells you exactly how much time the LLM is costing per request.
 
 ---
 
