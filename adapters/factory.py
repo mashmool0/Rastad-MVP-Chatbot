@@ -9,17 +9,20 @@ def get_llm():
     if provider == "openai":
         from adapters.llm.openai import OpenAILLMAdapter
         return OpenAILLMAdapter()
-    # default → openrouter
     from adapters.llm.openrouter import OpenRouterLLMAdapter
     return OpenRouterLLMAdapter()
 
 
 def get_embedder():
-    if getattr(settings, "EMBEDDING_PROVIDER", "jina") == "mock":
+    provider = getattr(settings, "EMBEDDING_PROVIDER", "huggingface")
+    if provider == "mock":
         from adapters.embedding.mock import MockEmbeddingAdapter
         return MockEmbeddingAdapter()
-    from adapters.embedding.jina import JinaEmbeddingAdapter
-    return JinaEmbeddingAdapter()
+    if provider == "jina":
+        from adapters.embedding.jina import JinaEmbeddingAdapter
+        return JinaEmbeddingAdapter()
+    from adapters.embedding.huggingface import HuggingFaceEmbeddingAdapter
+    return HuggingFaceEmbeddingAdapter()
 
 
 def build_pipeline():

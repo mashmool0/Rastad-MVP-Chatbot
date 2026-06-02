@@ -83,9 +83,10 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-8b")
 
 # --- Embeddings ---
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
-EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "jina")
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "jina-embeddings-v3")
-EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY", "")
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "huggingface")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-base")
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "768"))
 
 # --- Pipeline ---
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.45"))
