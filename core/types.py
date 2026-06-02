@@ -42,5 +42,8 @@ class PipelineResult:
     chunks_used: list[str]
     llm_provider: str
     fallback_used: bool
-    latency_ms: int
+    latency_ms: int        # total end-to-end
+    llm_ms: int = 0        # classify + generate combined
+    embedding_ms: int = 0  # Jina embed + pgvector search
+    other_ms: int = 0      # user lookup + evaluation + DB write
     error: str | None = None

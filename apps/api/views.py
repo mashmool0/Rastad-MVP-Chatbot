@@ -44,7 +44,12 @@ def message_view(request: Request) -> Response:
         "chunks_used":         result.chunks_used,
         "llm_provider":        result.llm_provider,
         "fallback_used":       result.fallback_used,
-        "latency_ms":          result.latency_ms,
+        "latency": {
+            "total_ms":     result.latency_ms,
+            "llm_ms":       result.llm_ms,
+            "embedding_ms": result.embedding_ms,
+            "other_ms":     result.other_ms,
+        },
     })
 
 
